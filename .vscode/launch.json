@@ -1,0 +1,15 @@
+{
+    "configurations": [
+        {
+            "name": "Pintos Debug",
+            "type": "gdb",
+            "request": "attach",
+            "executable": "${workspaceRoot}/pintos/threads/build/kernel.o",
+            "target": "localhost:1234",
+            "remote": true,
+            "cwd": "${workspaceRoot}/pintos",
+            "valuesFormatting": "parseText",
+            "preLaunchTask": "make pintos"
+        }
+    ]
+}
