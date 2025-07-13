@@ -12,7 +12,8 @@
     "files.associations": {
         "disk.h": "c",
         "malloc.h": "c",
-        "thread.h": "c"
+        "thread.h": "c",
+        "limits.h": "c"
     },
     // ==================================
     // 포맷팅 설정
