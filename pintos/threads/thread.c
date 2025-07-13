@@ -213,6 +213,49 @@ tid_t thread_create(const char *name, int priority,
 	return tid;
 }
 
+/* 삽입할 스레드와 현재 스레드의 wakeup_tick을 비교한다.
+ * 삽입할 스레드의 wakeup_tick이 현재 wakeup_tick보다 작으면 true를,
+ * 삽입할 스레드의 wakeup_tick이 현재 wakeup_tick보다 크면 false를
+ * 반환하도록 한다. */
+bool tick_less(const struct list_elem *a_, const struct list_elem *b_,
+							 void *aux UNUSED)
+{
+	const struct thread *a = list_entry(a_, struct thread, elem);
+	const struct thread *b = list_entry(b_, struct thread, elem);
+
+	return a->wakeup_tick < b->wakeup_tick;
+}
+
+/* 현재 스레드가 idle 스레드가 아니라면,
+ * 호출 스레드의 상태를 BLOCKED로 변경하고,
+ * 깨어날 때 사용할 로컬 틱 값을 저장한 뒤,
+ * 필요에 따라 전역 틱을 갱신하고,
+ * schedule()을 호출합니다. */
+/* ! 스레드 리스트를 조작할 때는 인터럽트를 비활성화해야한다. */
+void thread_sleep(int64_t wakeup_tick)
+{
+	struct thread *curr = thread_current();
+	enum intr_level old_level;
+
+	ASSERT(!intr_context());
+
+	if (curr != idle_thread)
+	{
+		old_level = intr_disable();
+
+		curr->wakeup_tick = wakeup_tick;
+		list_insert_ordered(&sleep_list, &curr->elem, tick_less, NULL);
+
+		if (wakeup_tick < min_tick)
+		{
+			min_tick = wakeup_tick;
+		}
+
+		do_schedule(THREAD_BLOCKED);
+		intr_set_level(old_level);
+	}
+}
+
 /* Puts the current thread to sleep.  It will not be scheduled
 	 again until awoken by thread_unblock().
 
