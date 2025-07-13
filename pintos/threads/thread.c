@@ -11,6 +11,7 @@
 #include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+#include "limits.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -57,6 +58,10 @@ static unsigned thread_ticks; /* # of timer ticks since last yield. */
 	 If true, use multi-level feedback queue scheduler.
 	 Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
+
+/* global한 변수 min_tick, 현재 sleep_list에 있는 스레드들 중 가장 작은
+ * wake_up tick 값을 가진다. */
+int64_t min_tick = LLONG_MAX;
 
 static void kernel_thread(thread_func *, void *aux);
 
@@ -254,6 +259,38 @@ void thread_sleep(int64_t wakeup_tick)
 		do_schedule(THREAD_BLOCKED);
 		intr_set_level(old_level);
 	}
+}
+
+void thread_wakeup()
+{
+	enum intr_level old_level;
+
+	old_level = intr_disable();
+
+	/* sleep_list에서 가장 앞의 원소를 하나 뺀다.
+	 * 해당 원소의 thread 구조체를 가져온다.
+	 * thread 구조체의 상태를 READY로 변경한다.
+	 * ready_list에 뒤에 넣어준다. */
+
+	if (!list_empty(&sleep_list))
+	{
+		struct list_elem *thread_elem = list_pop_front(&sleep_list);
+		struct thread *blocked_thread = list_entry(thread_elem, struct thread, elem);
+		blocked_thread->status = THREAD_READY;
+		list_push_back(&ready_list, thread_elem);
+	}
+
+	/* 앞에 있던 최소 wake up tick을 가진 thread들은 전부 빠진 상태이므로
+	 * sleep_list의 맨 앞의 요소에 해당하는 스레드의 wake_up tick을
+	 * 현재 min_tick으로 새롭게 업데이트 시켜준다. */
+	if (!list_empty(&sleep_list))
+	{
+		struct list_elem *front_thread_elem = list_front(&sleep_list);
+		struct thread *front_thread = list_entry(front_thread_elem, struct thread, elem);
+		min_tick = front_thread->wakeup_tick;
+	}
+
+	intr_set_level(old_level);
 }
 
 /* Puts the current thread to sleep.  It will not be scheduled

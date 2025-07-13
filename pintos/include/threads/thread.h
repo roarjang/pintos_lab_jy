@@ -24,9 +24,9 @@ typedef int tid_t;
 #define TID_ERROR ((tid_t) -1)          /* Error value for tid_t. */
 
 /* Thread priorities. */
-#define PRI_MIN 0                       /* Lowest priority. */
-#define PRI_DEFAULT 31                  /* Default priority. */
-#define PRI_MAX 63                      /* Highest priority. */
+
+/* Global tick - min value of sleeping thread's wakeup tick */
+extern int64_t min_tick;
 
 /* A kernel thread or user process.
  *
@@ -87,10 +87,7 @@ typedef int tid_t;
  * blocked state is on a semaphore wait list. */
 struct thread {
 	/* Owned by thread.c. */
-	tid_t tid;                          /* Thread identifier. */
-	enum thread_status status;          /* Thread state. */
-	char name[16];                      /* Name (for debugging purposes). */
-	int priority;                       /* Priority. */
+	int64_t wakeup_tick;			 /* Tick till wake up */
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
@@ -126,10 +123,7 @@ tid_t thread_create (const char *name, int priority, thread_func *, void *);
 bool tick_less(const struct list_elem *a_, const struct list_elem *b_,
 							 void *aux UNUSED);
 void thread_sleep(int64_t sleep_ticks);
-
-struct thread *thread_current (void);
-tid_t thread_tid (void);
-const char *thread_name (void);
+void thread_wakeup();
 
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
