@@ -276,26 +276,46 @@ void thread_sleep(int64_t wakeup_tick)
 
 void thread_wakeup()
 {
-	enum intr_level old_level;
+	enum intr_level old_level = intr_disable();
 
-	if (!list_empty(&sleep_list))
-	{
-		struct list_elem *thread_elem = list_pop_front(&sleep_list);
-		struct thread *blocked_thread = list_entry(thread_elem, struct thread, elem);
-		thread_unblock(blocked_thread);
-	}
-
-	/* 앞에 있던 최소 wake up tick을 가진 thread들은 전부 빠진 상태이므로
-	 * sleep_list의 맨 앞의 요소에 해당하는 스레드의 wake_up tick을
-	 * 현재 min_tick으로 새롭게 업데이트 시켜준다. */
-	old_level = intr_disable();
-	if (!list_empty(&sleep_list))
+	while (!list_empty(&sleep_list))
 	{
 		struct list_elem *front_thread_elem = list_front(&sleep_list);
 		struct thread *front_thread = list_entry(front_thread_elem, struct thread, elem);
-		min_tick = front_thread->wakeup_tick;
+
+		if (front_thread->wakeup_tick == min_tick)
+		{
+			struct list_elem *thread_elem = list_pop_front(&sleep_list);
+			struct thread *blocked_thread = list_entry(thread_elem, struct thread, elem);
+			thread_unblock(blocked_thread);
+		}
+		else
+		{
+			min_tick = front_thread->wakeup_tick;
+			break;
+		}
 	}
+
 	intr_set_level(old_level);
+
+	// if (!list_empty(&sleep_list))
+	// {
+	// 	struct list_elem *thread_elem = list_pop_front(&sleep_list);
+	// 	struct thread *blocked_thread = list_entry(thread_elem, struct thread, elem);
+	// 	thread_unblock(blocked_thread);
+	// }
+
+	// /* 앞에 있던 최소 wake up tick을 가진 thread들은 전부 빠진 상태이므로
+	//  * sleep_list의 맨 앞의 요소에 해당하는 스레드의 wake_up tick을
+	//  * 현재 min_tick으로 새롭게 업데이트 시켜준다. */
+	// old_level = intr_disable();
+	// if (!list_empty(&sleep_list))
+	// {
+	// 	struct list_elem *front_thread_elem = list_front(&sleep_list);
+	// 	struct thread *front_thread = list_entry(front_thread_elem, struct thread, elem);
+	// 	min_tick = front_thread->wakeup_tick;
+	// }
+	// intr_set_level(old_level);
 }
 
 /* Puts the current thread to sleep.  It will not be scheduled
