@@ -231,6 +231,19 @@ bool tick_less(const struct list_elem *a_, const struct list_elem *b_,
 	return a->wakeup_tick < b->wakeup_tick;
 }
 
+/* 삽입할 스레드와 현재 스레드의 priority를 비교한다.
+ * 삽입할 스레드의 priority가 현재 priority보다 크면 true를
+ * 삽입할 스레드의 priority가 현재 priority보다 작으면 false를,
+ * 반환하도록 한다. */
+bool priority_less(const struct list_elem *a_, const struct list_elem *b_,
+									 void *aux UNUSED)
+{
+	const struct thread *a = list_entry(a_, struct thread, elem);
+	const struct thread *b = list_entry(b_, struct thread, elem);
+
+	return a->priority > b->priority;
+}
+
 /* 현재 스레드가 idle 스레드가 아니라면,
  * 호출 스레드의 상태를 BLOCKED로 변경하고,
  * 깨어날 때 사용할 로컬 틱 값을 저장한 뒤,
@@ -265,31 +278,23 @@ void thread_wakeup()
 {
 	enum intr_level old_level;
 
-	old_level = intr_disable();
-
-	/* sleep_list에서 가장 앞의 원소를 하나 뺀다.
-	 * 해당 원소의 thread 구조체를 가져온다.
-	 * thread 구조체의 상태를 READY로 변경한다.
-	 * ready_list에 뒤에 넣어준다. */
-
 	if (!list_empty(&sleep_list))
 	{
 		struct list_elem *thread_elem = list_pop_front(&sleep_list);
 		struct thread *blocked_thread = list_entry(thread_elem, struct thread, elem);
-		blocked_thread->status = THREAD_READY;
-		list_push_back(&ready_list, thread_elem);
+		thread_unblock(blocked_thread);
 	}
 
 	/* 앞에 있던 최소 wake up tick을 가진 thread들은 전부 빠진 상태이므로
 	 * sleep_list의 맨 앞의 요소에 해당하는 스레드의 wake_up tick을
 	 * 현재 min_tick으로 새롭게 업데이트 시켜준다. */
+	old_level = intr_disable();
 	if (!list_empty(&sleep_list))
 	{
 		struct list_elem *front_thread_elem = list_front(&sleep_list);
 		struct thread *front_thread = list_entry(front_thread_elem, struct thread, elem);
 		min_tick = front_thread->wakeup_tick;
 	}
-
 	intr_set_level(old_level);
 }
 
@@ -323,7 +328,8 @@ void thread_unblock(struct thread *t)
 
 	old_level = intr_disable();
 	ASSERT(t->status == THREAD_BLOCKED);
-	list_push_back(&ready_list, &t->elem);
+	// list_push_back(&ready_list, &t->elem);
+	list_insert_ordered(&ready_list, &t->elem, priority_less, NULL);
 	t->status = THREAD_READY;
 	intr_set_level(old_level);
 }
