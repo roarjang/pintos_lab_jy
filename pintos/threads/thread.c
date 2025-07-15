@@ -26,7 +26,9 @@
 
 /* List of processes in THREAD_READY state, that is, processes
 	 that are ready to run but not actually running. */
-static struct list ready_list;
+struct list ready_list;
+
+struct list sleep_list; // "THREAD_BLOCKED" 상태의 스레드를 저장하는 리스트
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -76,7 +78,9 @@ static tid_t allocate_tid(void);
 // Global descriptor table for the thread_start.
 // Because the gdt will be setup after the thread_init, we should
 // setup temporal gdt first.
-static uint64_t gdt[3] = {0, 0x00af9a000000ffff, 0x00cf92000000ffff};
+static uint64_t gdt[3] = {0,
+													0x00af9a000000ffff,
+													0x00cf92000000ffff};
 
 /* Initializes the threading system by transforming the code
 	 that's currently running into a thread.  This can't work in
@@ -106,6 +110,7 @@ void thread_init(void)
 	/* Init the globla thread context */
 	lock_init(&tid_lock);
 	list_init(&ready_list);
+	list_init(&sleep_list);
 	list_init(&destruction_req);
 
 	/* Set up a thread structure for the running thread. */
@@ -214,12 +219,33 @@ tid_t thread_create(const char *name, int priority,
 	 This function must be called with interrupts turned off.  It
 	 is usually a better idea to use one of the synchronization
 	 primitives in synch.h. */
-void thread_block(void)
+/* 스레드의 상태를 "THREAD_BLOCKED"로 변경하고, sleep_list에 넣는다. */
+void thread_block()
 {
 	ASSERT(!intr_context());
 	ASSERT(intr_get_level() == INTR_OFF);
-	thread_current()->status = THREAD_BLOCKED;
+	struct thread *t = thread_current();
+	t->status = THREAD_BLOCKED;
 	schedule();
+}
+
+/* priority 기준 내림차순 정렬 함수 (높은 priority 우선) */
+bool compare_priority_desc(const struct list_elem *a,
+													 const struct list_elem *b,
+													 void *aus UNUSED)
+{
+	const struct thread *t_a = list_entry(a, struct thread, elem);
+	const struct thread *t_b = list_entry(b, struct thread, elem);
+
+	return t_a->priority > t_b->priority;
+}
+
+void do_thread_ready(struct thread *t)
+{
+	ASSERT(t->status == THREAD_BLOCKED);
+	t->status = THREAD_READY;
+	list_insert_ordered(&ready_list, &t->elem,
+											compare_priority_desc, NULL);
 }
 
 /* Transitions a blocked thread T to the ready-to-run state.
@@ -232,14 +258,8 @@ void thread_block(void)
 	 update other data. */
 void thread_unblock(struct thread *t)
 {
-	enum intr_level old_level;
-
-	ASSERT(is_thread(t));
-
-	old_level = intr_disable();
-	ASSERT(t->status == THREAD_BLOCKED);
-	list_push_back(&ready_list, &t->elem);
-	t->status = THREAD_READY;
+	enum intr_level old_level = intr_disable();
+	do_thread_ready(t);
 	intr_set_level(old_level);
 }
 
