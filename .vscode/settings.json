@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "serial.h": "c",
+        "thread.h": "c",
+        "intq.h": "c",
+        "io.h": "c"
+    }
+}
