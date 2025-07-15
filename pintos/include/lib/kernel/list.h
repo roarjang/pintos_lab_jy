@@ -84,15 +84,17 @@
 #include <stdint.h>
 
 /* List element. */
-struct list_elem {
-	struct list_elem *prev;     /* Previous list element. */
-	struct list_elem *next;     /* Next list element. */
+struct list_elem
+{
+   struct list_elem *prev; /* Previous list element. */
+   struct list_elem *next; /* Next list element. */
 };
 
 /* List. */
-struct list {
-	struct list_elem head;      /* List head. */
-	struct list_elem tail;      /* List tail. */
+struct list
+{
+   struct list_elem head; /* List head. */
+   struct list_elem tail; /* List tail. */
 };
 
 /* Converts pointer to list element LIST_ELEM into a pointer to
@@ -100,64 +102,73 @@ struct list {
    name of the outer structure STRUCT and the member name MEMBER
    of the list element.  See the big comment at the top of the
    file for an example. */
-#define list_entry(LIST_ELEM, STRUCT, MEMBER)           \
-	((STRUCT *) ((uint8_t *) &(LIST_ELEM)->next     \
-		- offsetof (STRUCT, MEMBER.next)))
+/* LIST_ELEM이라는 리스트 요소 포인터를, 해당 리스트 요소가 내장된(embedded) 외부 구조체(outer structure)의 포인터로 변환합니다.
+   이를 위해 외부 구조체의 이름 STRUCT와 리스트 요소의 멤버 이름 MEMBER를 제공해야 합니다.
+   예시는 파일 상단에 있는 큰 주석을 참조하십시오. */
+#define list_entry(LIST_ELEM, STRUCT, MEMBER) \
+   ((STRUCT *)((uint8_t *)&(LIST_ELEM)->next - offsetof(STRUCT, MEMBER.next)))
 
-void list_init (struct list *);
+void list_init(struct list *);
 
 /* List traversal. */
-struct list_elem *list_begin (struct list *);
-struct list_elem *list_next (struct list_elem *);
-struct list_elem *list_end (struct list *);
+struct list_elem *list_begin(struct list *);
+struct list_elem *list_next(struct list_elem *);
+struct list_elem *list_end(struct list *);
 
-struct list_elem *list_rbegin (struct list *);
-struct list_elem *list_prev (struct list_elem *);
-struct list_elem *list_rend (struct list *);
+struct list_elem *list_rbegin(struct list *);
+struct list_elem *list_prev(struct list_elem *);
+struct list_elem *list_rend(struct list *);
 
-struct list_elem *list_head (struct list *);
-struct list_elem *list_tail (struct list *);
+struct list_elem *list_head(struct list *);
+struct list_elem *list_tail(struct list *);
 
 /* List insertion. */
-void list_insert (struct list_elem *, struct list_elem *);
-void list_splice (struct list_elem *before,
-		struct list_elem *first, struct list_elem *last);
-void list_push_front (struct list *, struct list_elem *);
-void list_push_back (struct list *, struct list_elem *);
+void list_insert(struct list_elem *, struct list_elem *);
+void list_splice(struct list_elem *before,
+                 struct list_elem *first, struct list_elem *last);
+void list_push_front(struct list *, struct list_elem *);
+void list_push_back(struct list *, struct list_elem *);
 
 /* List removal. */
-struct list_elem *list_remove (struct list_elem *);
-struct list_elem *list_pop_front (struct list *);
-struct list_elem *list_pop_back (struct list *);
+struct list_elem *list_remove(struct list_elem *);
+struct list_elem *list_pop_front(struct list *);
+struct list_elem *list_pop_back(struct list *);
 
 /* List elements. */
-struct list_elem *list_front (struct list *);
-struct list_elem *list_back (struct list *);
+struct list_elem *list_front(struct list *);
+struct list_elem *list_back(struct list *);
 
 /* List properties. */
-size_t list_size (struct list *);
-bool list_empty (struct list *);
+size_t list_size(struct list *);
+bool list_empty(struct list *);
 
 /* Miscellaneous. */
-void list_reverse (struct list *);
+void list_reverse(struct list *);
 
 /* Compares the value of two list elements A and B, given
    auxiliary data AUX.  Returns true if A is less than B, or
    false if A is greater than or equal to B. */
-typedef bool list_less_func (const struct list_elem *a,
-                             const struct list_elem *b,
-                             void *aux);
+/* 리스트의 두 요소 A와 B를 보조 데이터 AUX를 기준으로 비교한다.
+   A가 B보다 작으면 true를 반환하고,
+   A가 B보다 크거나 같으면 false를 반환한다. */
+// aux는 필요하면 추가 정보를 전달하는 보조 인자
+// 함수 타입 정의일 뿐 실제 함수는 아님! 인터페이스 선언 같은 것임
+// C 언어에서는 함수를 변수처럼 넘기려면 함수 포인터를 써야하기 때문에, 함수 포인터를 깔끔하게 쓰기 위해서 사용
+// 내가 리스트 정렬할 때 사용할 비교 함수 하나 넘겨줘! 그 함수는 list_less_func 타입이어야 해!
+typedef bool list_less_func(const struct list_elem *a,
+                            const struct list_elem *b,
+                            void *aux);
 
 /* Operations on lists with ordered elements. */
-void list_sort (struct list *,
-                list_less_func *, void *aux);
-void list_insert_ordered (struct list *, struct list_elem *,
-                          list_less_func *, void *aux);
-void list_unique (struct list *, struct list *duplicates,
-                  list_less_func *, void *aux);
+void list_sort(struct list *,
+               list_less_func *, void *aux);
+void list_insert_ordered(struct list *, struct list_elem *,
+                         list_less_func *, void *aux);
+void list_unique(struct list *, struct list *duplicates,
+                 list_less_func *, void *aux);
 
 /* Max and min. */
-struct list_elem *list_max (struct list *, list_less_func *, void *aux);
-struct list_elem *list_min (struct list *, list_less_func *, void *aux);
+struct list_elem *list_max(struct list *, list_less_func *, void *aux);
+struct list_elem *list_min(struct list *, list_less_func *, void *aux);
 
 #endif /* lib/kernel/list.h */
