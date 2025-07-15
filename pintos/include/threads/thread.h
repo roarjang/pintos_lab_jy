@@ -130,6 +130,8 @@ tid_t thread_create(const char *name, int priority, thread_func *, void *);
 
 bool tick_less(const struct list_elem *a_, const struct list_elem *b_,
 							 void *aux UNUSED);
+bool priority_large(const struct list_elem *a_, const struct list_elem *b_,
+										void *aux UNUSED);
 void thread_sleep(int64_t sleep_ticks);
 void thread_wakeup();
 void thread_block(void);
