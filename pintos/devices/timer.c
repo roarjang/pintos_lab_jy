@@ -38,7 +38,7 @@ static int64_t next_wake_tick = INT64_MAX;
 static bool
 compare_wake_up_tick_asc(const struct list_elem *a,
 												 const struct list_elem *b,
-												 void *aus UNUSED);
+												 void *aux UNUSED);
 
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
 	 interrupt PIT_FREQ times per second, and registers the
@@ -221,7 +221,7 @@ real_time_sleep(int64_t num, int32_t denom)
 static bool
 compare_wake_up_tick_asc(const struct list_elem *a,
 												 const struct list_elem *b,
-												 void *aus UNUSED)
+												 void *aux UNUSED)
 {
 	const struct thread *t_a = list_entry(a, struct thread, elem);
 	const struct thread *t_b = list_entry(b, struct thread, elem);

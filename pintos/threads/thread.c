@@ -246,7 +246,7 @@ void thread_block()
 /* priority 기준 내림차순 정렬 함수 (높은 priority 우선) */
 bool compare_priority_desc(const struct list_elem *a,
 													 const struct list_elem *b,
-													 void *aus UNUSED)
+													 void *aux UNUSED)
 {
 	const struct thread *t_a = list_entry(a, struct thread, elem);
 	const struct thread *t_b = list_entry(b, struct thread, elem);
