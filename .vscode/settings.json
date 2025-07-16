@@ -13,7 +13,8 @@
         "disk.h": "c",
         "malloc.h": "c",
         "thread.h": "c",
-        "limits.h": "c"
+        "limits.h": "c",
+        "stdbool.h": "c"
     },
     // ==================================
     // 포맷팅 설정
