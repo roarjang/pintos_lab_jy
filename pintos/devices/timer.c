@@ -91,13 +91,15 @@ timer_elapsed(int64_t then)
 }
 
 /* Suspends execution for approximately TICKS timer ticks. */
-void timer_sleep(int64_t ticks)
+void timer_sleep(int64_t sleep_ticks)
 {
 	int64_t start = timer_ticks();
 
-	ASSERT(intr_get_level() == INTR_ON);
-	while (timer_elapsed(start) < ticks)
-		thread_yield();
+	// TODO: add turnning on interrupt for opt
+	if (timer_elapsed(start) < sleep_ticks)
+	{
+		thread_sleep(start + sleep_ticks);
+	}
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -125,11 +127,20 @@ void timer_print_stats(void)
 }
 
 /* Timer interrupt handler. */
+/* 타이머 인터럽트가 발생할 때마다 깨워야 할 스레드를 결정합니다. */
 static void
 timer_interrupt(struct intr_frame *args UNUSED)
 {
 	ticks++;
 	thread_tick();
+
+	/* OS가 부팅되었을때부터 쭉 흘러가는 시간인 timer_ticks() 값과
+	 * 현재 가장 빨리 깨어나야하는 thread의 tick 정보가 저장되어있는 값을 비교하여
+	 * 해당 시간이 되었거나 이미 지났다면 thread를 깨우는 logic을 진행한다. */
+	if (min_tick <= timer_ticks())
+	{
+		thread_wakeup();
+	}
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
