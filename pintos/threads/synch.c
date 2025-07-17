@@ -32,6 +32,11 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+static bool
+compare_sema_priority_desc(const struct list_elem *a,
+													 const struct list_elem *b,
+													 void *aux UNUSED);
+
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
 	 nonnegative integer along with two atomic operators for
 	 manipulating it:
@@ -67,7 +72,7 @@ void sema_down(struct semaphore *sema)
 	old_level = intr_disable();
 	while (sema->value == 0)
 	{
-		list_push_back(&sema->waiters, &thread_current()->elem);
+		list_insert_ordered(&sema->waiters, &thread_current()->elem, compare_priority_desc, NULL);
 		thread_block();
 	}
 	sema->value--;
@@ -109,12 +114,26 @@ void sema_up(struct semaphore *sema)
 
 	ASSERT(sema != NULL);
 
-	old_level = intr_disable();
+	struct thread *sema_thread;
+
 	if (!list_empty(&sema->waiters))
-		thread_unblock(list_entry(list_pop_front(&sema->waiters),
-															struct thread, elem));
-	sema->value++;
-	intr_set_level(old_level);
+	{
+		old_level = intr_disable();
+		sema->value++;
+		sema_thread = list_entry(list_pop_front(&sema->waiters), struct thread, elem);
+		intr_set_level(old_level);
+
+		thread_unblock(sema_thread);
+
+		if (thread_current()->priority < sema_thread->priority)
+			thread_yield();
+	}
+	else
+	{
+		old_level = intr_disable();
+		sema->value++;
+		intr_set_level(old_level);
+	}
 }
 
 static void sema_test_helper(void *sema_);
@@ -168,6 +187,17 @@ sema_test_helper(void *sema_)
 	 acquire and release it.  When these restrictions prove
 	 onerous, it's a good sign that a semaphore should be used,
 	 instead of a lock. */
+/* Lock을 초기화한다. 락은 한 번에 최대 하나의 스레드만 소유할 수 있다.
+	 이 락은 재귀적(recursion)이 아니므로, 이미 락을 소유한 스레드가
+	 다시 동일한 락을 획득하려고 하면 오류가 발생한다.
+
+	 이 락은 초기값이 1인 세마포어의 특수한 형태이다.
+	 락과 일반 세마포어의 차이점은 두 가지이다.
+	 첫째, 세마포어는 값이 1보다 클 수 있지만, 락은 항상 하나의 스레드만 소유할 수 있다.
+	 둘째, 세마포어에는 소유자 개념이 없어서 한 스레드가 down 연산을 하고
+	 다른 스레드가 up 연산을 수행해도 되지만,
+	 라은 반드시 같은 스레드가 획득(acquire)하고 해제(release)해야 한다.
+	 이 제약이 부담스럽다면, 락 대신 세마포어를 사용하는 것이 좋다.*/
 void lock_init(struct lock *lock)
 {
 	ASSERT(lock != NULL);
@@ -184,6 +214,12 @@ void lock_init(struct lock *lock)
 	 interrupt handler.  This function may be called with
 	 interrupts disabled, but interrupts will be turned back on if
 	 we need to sleep. */
+/* 락(LOCK)을 획득한다. 필요하다면 사용 가능해질 때까지 대기(sleep)한다.
+	 현재 스레드가 이미 이 락을 소유하고 있어서는 안 된다.
+
+	 이 함수는 대기 상태로 들어갈 수 있으므로, 인터럽트 핸들러 내에서 호출하면 안 된다.
+	 또한 인터럽트가 비활성화된 상태에서도 호출할 수 있지만,
+	 대기할 때는 인터럽트를 다시 활성화한다. */
 void lock_acquire(struct lock *lock)
 {
 	ASSERT(lock != NULL);
@@ -200,6 +236,10 @@ void lock_acquire(struct lock *lock)
 
 	 This function will not sleep, so it may be called within an
 	 interrupt handler. */
+/* LOCK을 획득 시도하고, 성공하면 true를, 실패하면 false를 반환한다.
+	 현재 스레드가 이미 이 락을 소유하고 있어서는 안 된다.
+
+	 이 함수는 대기 상태(sleep)를 발생시키지 않으므로, 인터럽트 핸들러 내에서도 호출할 수 있다.*/
 bool lock_try_acquire(struct lock *lock)
 {
 	bool success;
@@ -219,6 +259,11 @@ bool lock_try_acquire(struct lock *lock)
 	 An interrupt handler cannot acquire a lock, so it does not
 	 make sense to try to release a lock within an interrupt
 	 handler. */
+/* LOCK을 해제한다. 이 락은 반드시 현재 스레드가 소유하고 있어야 한다.
+	 이것이 Lock_release 함수이다.
+
+	 인터럽트 핸들러는 락을 획득할 수 없으므로,
+	 인터럽트 핸들러 내에서 락을 해제하는 것은 의미가 없다. */
 void lock_release(struct lock *lock)
 {
 	ASSERT(lock != NULL);
@@ -231,6 +276,8 @@ void lock_release(struct lock *lock)
 /* Returns true if the current thread holds LOCK, false
 	 otherwise.  (Note that testing whether some other thread holds
 	 a lock would be racy.) */
+/* 현재 스레드가 LOCK을 소유하고 있으면 true를, 그렇지 않으면 false를 반환한다.
+	 (다른 스레드가 락을 소유하고 있는지 검사하는 것은 경쟁(race)이 발생할 수 있다.) */
 bool lock_held_by_current_thread(const struct lock *lock)
 {
 	ASSERT(lock != NULL);
@@ -243,11 +290,15 @@ struct semaphore_elem
 {
 	struct list_elem elem;			/* List element. */
 	struct semaphore semaphore; /* This semaphore. */
+	int priority;								/* 대기 시작 시점의 스레드 우선순위 */
 };
 
 /* Initializes condition variable COND.  A condition variable
 	 allows one piece of code to signal a condition and cooperating
 	 code to receive the signal and act upon it. */
+/* 조건 변수 COND를 초기화한다.
+	 조건 변수는 한쪽 코드가 어떤 조건을 신호(signaling)하면,
+	 협력하는 다른 코드가 그 신호를 받아 처리할 수 있도록 해 준다. */
 void cond_init(struct condition *cond)
 {
 	ASSERT(cond != NULL);
@@ -275,6 +326,22 @@ void cond_init(struct condition *cond)
 	 interrupt handler.  This function may be called with
 	 interrupts disabled, but interrupts will be turned back on if
 	 we need to sleep. */
+/* LOCK을 원자적으로 해제한 뒤, COND가 다른 코드에 의해 신호(signaled)될 때까지 대기한다.
+	 COND에 신호가 발생하면, 반환하기 전에 LOCK을 다시 획득한다.
+	 이 함수를 호출하기 전에 LOCK이 이미 획득되어 있어야 한다.
+
+	 이 함수가 구현하는 모니터는 "Mesa" 스타일이며, "Hoare" 스타일이 아니다.
+	 즉, 신호를 보내는 것과 받는 것은 원자적인 연산이 아니므로,
+	 일반적으로 대기가 끝난 후에는 조건을 다시 검사하고,
+	 필요하다면 다시 대기해야 한다.
+
+	 하나의 조건 변수는 단 하나의 락과 연결되지만,
+	 하나의 락은 여러 개의 조건 변수와 연결될 수 있다.
+	 즉, 락 하나에 조건 변수가 여러 개 매핑될 수 있다.
+
+	 이 함수는 잠들 수 있으므로, 인터럽트 핸들러 내부에서 호출해서는 안 된다.
+	 또한, 인터럽트가 비활성화된 상태에서 호출할 수 있으나,
+	 대기 상태로 들어가면 인터럽는 다시 활성화된다.*/
 void cond_wait(struct condition *cond, struct lock *lock)
 {
 	struct semaphore_elem waiter;
@@ -285,7 +352,8 @@ void cond_wait(struct condition *cond, struct lock *lock)
 	ASSERT(lock_held_by_current_thread(lock));
 
 	sema_init(&waiter.semaphore, 0);
-	list_push_back(&cond->waiters, &waiter.elem);
+	waiter.priority = thread_current()->priority;
+	list_insert_ordered(&cond->waiters, &waiter.elem, compare_sema_priority_desc, NULL);
 	lock_release(lock);
 	sema_down(&waiter.semaphore);
 	lock_acquire(lock);
@@ -298,6 +366,12 @@ void cond_wait(struct condition *cond, struct lock *lock)
 	 An interrupt handler cannot acquire a lock, so it does not
 	 make sense to try to signal a condition variable within an
 	 interrupt handler. */
+/* 만약 LOCK으로 보호된 COND에 대기 중인 스레드가 있다면,
+	 그중 하나에게 신호를 보내 대기에서 깨어나도록 한다.
+	 이 함수를 호출하기 전에 LOCK이 반드시 획득되어 있어야 한다.
+
+	 인터럽트 핸들러는 락을 획득할 수 없으므로,
+	 인터럽트 핸들러 내에서 조건 변수에 신호를 보내는 것은 의미가 없다. */
 void cond_signal(struct condition *cond, struct lock *lock UNUSED)
 {
 	ASSERT(cond != NULL);
@@ -306,9 +380,9 @@ void cond_signal(struct condition *cond, struct lock *lock UNUSED)
 	ASSERT(lock_held_by_current_thread(lock));
 
 	if (!list_empty(&cond->waiters))
-		sema_up(&list_entry(list_pop_front(&cond->waiters),
-												struct semaphore_elem, elem)
-								 ->semaphore);
+	{
+		sema_up(&list_entry(list_pop_front(&cond->waiters), struct semaphore_elem, elem)->semaphore);
+	}
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by
@@ -317,6 +391,11 @@ void cond_signal(struct condition *cond, struct lock *lock UNUSED)
 	 An interrupt handler cannot acquire a lock, so it does not
 	 make sense to try to signal a condition variable within an
 	 interrupt handler. */
+/* LOCK으로 보호된 COND에 대기 중인 모든 스레드를 깨운다.
+	 이 함수를 호출하기 전에 LOCK이 반드시 획득되어 있어야 한다.
+
+	 인터럽트 핸들러는 락을 획득할 수 없으므로,
+	 인터럽트 핸들러 내부에서 조건 변수에 신호를 보내는 것은 의미가 없다. */
 void cond_broadcast(struct condition *cond, struct lock *lock)
 {
 	ASSERT(cond != NULL);
@@ -324,4 +403,15 @@ void cond_broadcast(struct condition *cond, struct lock *lock)
 
 	while (!list_empty(&cond->waiters))
 		cond_signal(cond, lock);
+}
+
+static bool
+compare_sema_priority_desc(const struct list_elem *a,
+													 const struct list_elem *b,
+													 void *aux UNUSED)
+{
+	struct semaphore_elem *sema_a = list_entry(a, struct semaphore_elem, elem);
+	struct semaphore_elem *sema_b = list_entry(b, struct semaphore_elem, elem);
+
+	return sema_a->priority > sema_b->priority;
 }

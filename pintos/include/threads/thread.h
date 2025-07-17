@@ -153,7 +153,7 @@ void do_iret(struct intr_frame *tf);
 /* priority 기준 내림차순 정렬 함수 (높은 priority 우선) */
 bool compare_priority_desc(const struct list_elem *a,
 													 const struct list_elem *b,
-													 void *aus UNUSED);
+													 void *aux UNUSED);
 
 void do_thread_ready(struct thread *t);
 
