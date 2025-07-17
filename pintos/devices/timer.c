@@ -29,6 +29,17 @@ static bool too_many_loops(unsigned loops);
 static void busy_wait(int64_t loops);
 static void real_time_sleep(int64_t num, int32_t denom);
 
+static void wake_up_threads(void);
+
+// thread.h
+static int64_t next_wake_tick = INT64_MAX;
+
+/* wake_up_tick 기준 오름차순 정렬 함수 */
+static bool
+compare_wake_up_tick_asc(const struct list_elem *a,
+												 const struct list_elem *b,
+												 void *aus UNUSED);
+
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
 	 interrupt PIT_FREQ times per second, and registers the
 	 corresponding interrupt. */
@@ -93,11 +104,20 @@ timer_elapsed(int64_t then)
 /* Suspends execution for approximately TICKS timer ticks. */
 void timer_sleep(int64_t ticks)
 {
+	if (ticks <= 0)
+		return;
 	int64_t start = timer_ticks();
+	struct thread *t = thread_current();
 
-	ASSERT(intr_get_level() == INTR_ON);
-	while (timer_elapsed(start) < ticks)
-		thread_yield();
+	enum intr_level old_level = intr_disable();
+	t->wake_up_tick = start + ticks;
+
+	if ((start + ticks) < next_wake_tick)
+		next_wake_tick = (start + ticks);
+
+	list_insert_ordered(&sleep_list, &(t->elem), compare_wake_up_tick_asc, NULL);
+	thread_block();
+	intr_set_level(old_level);
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -129,7 +149,10 @@ static void
 timer_interrupt(struct intr_frame *args UNUSED)
 {
 	ticks++;
+	if (next_wake_tick <= ticks)
+		wake_up_threads();
 	thread_tick();
+	intr_yield_on_return();
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
@@ -192,5 +215,46 @@ real_time_sleep(int64_t num, int32_t denom)
 			 down by 1000 to avoid the possibility of overflow. */
 		ASSERT(denom % 1000 == 0);
 		busy_wait(loops_per_tick * num / 1000 * TIMER_FREQ / (denom / 1000));
+	}
+}
+
+/* wake_up_tick 기준 오름차순 정렬 함수 */
+static bool
+compare_wake_up_tick_asc(const struct list_elem *a,
+												 const struct list_elem *b,
+												 void *aus UNUSED)
+{
+	const struct thread *t_a = list_entry(a, struct thread, elem);
+	const struct thread *t_b = list_entry(b, struct thread, elem);
+
+	return t_a->wake_up_tick < t_b->wake_up_tick;
+}
+
+static void
+wake_up_threads(void)
+{
+	while (!list_empty(&sleep_list))
+	{
+		struct list_elem *curr_elem = list_begin(&sleep_list);
+		struct thread *curr_thread = list_entry(curr_elem, struct thread, elem);
+
+		if (ticks < curr_thread->wake_up_tick)
+			break;
+
+		enum intr_level old_level = intr_disable();
+		list_remove(curr_elem);
+		do_thread_ready(curr_thread);
+		intr_set_level(old_level);
+	}
+
+	if (!list_empty(&sleep_list))
+	{
+		struct thread *next_thread = list_entry(list_begin(&sleep_list), struct thread, elem);
+
+		next_wake_tick = next_thread->wake_up_tick;
+	}
+	else
+	{
+		next_wake_tick = INT64_MAX;
 	}
 }
