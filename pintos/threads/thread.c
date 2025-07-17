@@ -11,6 +11,7 @@
 #include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+#include "limits.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -27,6 +28,10 @@
 /* List of processes in THREAD_READY state, that is, processes
 	 that are ready to run but not actually running. */
 static struct list ready_list;
+
+/* List of processess in THREAD_BLOCKED state, that is, processes
+	that are really actually sleeping. */
+static struct list sleep_list;
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -53,6 +58,10 @@ static unsigned thread_ticks; /* # of timer ticks since last yield. */
 	 If true, use multi-level feedback queue scheduler.
 	 Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
+
+/* global한 변수 min_tick, 현재 sleep_list에 있는 스레드들 중 가장 작은
+ * wake_up tick 값을 가진다. */
+int64_t min_tick = LLONG_MAX;
 
 static void kernel_thread(thread_func *, void *aux);
 
@@ -106,6 +115,7 @@ void thread_init(void)
 	/* Init the globla thread context */
 	lock_init(&tid_lock);
 	list_init(&ready_list);
+	list_init(&sleep_list);
 	list_init(&destruction_req);
 
 	/* Set up a thread structure for the running thread. */
@@ -205,7 +215,104 @@ tid_t thread_create(const char *name, int priority,
 	/* Add to run queue. */
 	thread_unblock(t);
 
+	/* compare the priorities of the currently running thread
+	 * and the newly inserted one. Yield the CPU if the newly
+	 * arriving thread has higer priority*/
+
+	enum intr_level old_level = intr_disable();
+
+	if (!list_empty(&ready_list))
+	{
+		if (thread_current()->priority < list_entry(list_front(&ready_list), struct thread, elem))
+		{
+			thread_yield();
+		}
+	}
+
+	intr_set_level(old_level);
+
 	return tid;
+}
+
+/* 삽입할 스레드와 현재 스레드의 wakeup_tick을 비교한다.
+ * 삽입할 스레드의 wakeup_tick이 현재 wakeup_tick보다 작으면 true를,
+ * 삽입할 스레드의 wakeup_tick이 현재 wakeup_tick보다 크면 false를
+ * 반환하도록 한다. */
+bool tick_less(const struct list_elem *a_, const struct list_elem *b_,
+							 void *aux UNUSED)
+{
+	const struct thread *a = list_entry(a_, struct thread, elem);
+	const struct thread *b = list_entry(b_, struct thread, elem);
+
+	return a->wakeup_tick < b->wakeup_tick;
+}
+
+/* 삽입할 스레드와 현재 스레드의 priority를 비교한다.
+ * 삽입할 스레드의 priority가 현재 priority보다 크면 true를
+ * 삽입할 스레드의 priority가 현재 priority보다 작으면 false를,
+ * 반환하도록 한다. */
+bool priority_large(const struct list_elem *a_, const struct list_elem *b_,
+										void *aux UNUSED)
+{
+	const struct thread *a = list_entry(a_, struct thread, elem);
+	const struct thread *b = list_entry(b_, struct thread, elem);
+
+	return a->priority > b->priority;
+}
+
+/* 현재 스레드가 idle 스레드가 아니라면,
+ * 호출 스레드의 상태를 BLOCKED로 변경하고,
+ * 깨어날 때 사용할 로컬 틱 값을 저장한 뒤,
+ * 필요에 따라 전역 틱을 갱신하고,
+ * schedule()을 호출합니다. */
+/* ! 스레드 리스트를 조작할 때는 인터럽트를 비활성화해야한다. */
+void thread_sleep(int64_t wakeup_tick)
+{
+	struct thread *curr = thread_current();
+	enum intr_level old_level;
+
+	ASSERT(!intr_context());
+
+	if (curr != idle_thread)
+	{
+		old_level = intr_disable();
+
+		curr->wakeup_tick = wakeup_tick;
+		list_insert_ordered(&sleep_list, &curr->elem, tick_less, NULL);
+
+		if (wakeup_tick < min_tick)
+		{
+			min_tick = wakeup_tick;
+		}
+
+		do_schedule(THREAD_BLOCKED);
+		intr_set_level(old_level);
+	}
+}
+
+void thread_wakeup()
+{
+	enum intr_level old_level = intr_disable();
+
+	while (!list_empty(&sleep_list))
+	{
+		struct list_elem *front_thread_elem = list_front(&sleep_list);
+		struct thread *front_thread = list_entry(front_thread_elem, struct thread, elem);
+
+		if (front_thread->wakeup_tick == min_tick)
+		{
+			struct list_elem *thread_elem = list_pop_front(&sleep_list);
+			struct thread *blocked_thread = list_entry(thread_elem, struct thread, elem);
+			thread_unblock(blocked_thread);
+		}
+		else
+		{
+			min_tick = front_thread->wakeup_tick;
+			break;
+		}
+	}
+
+	intr_set_level(old_level);
 }
 
 /* Puts the current thread to sleep.  It will not be scheduled
@@ -238,7 +345,7 @@ void thread_unblock(struct thread *t)
 
 	old_level = intr_disable();
 	ASSERT(t->status == THREAD_BLOCKED);
-	list_push_back(&ready_list, &t->elem);
+	list_insert_ordered(&ready_list, &t->elem, priority_large, NULL);
 	t->status = THREAD_READY;
 	intr_set_level(old_level);
 }
@@ -303,7 +410,10 @@ void thread_yield(void)
 
 	old_level = intr_disable();
 	if (curr != idle_thread)
-		list_push_back(&ready_list, &curr->elem);
+	{
+		list_insert_ordered(&ready_list, &curr->elem, priority_large, NULL);
+	}
+
 	do_schedule(THREAD_READY);
 	intr_set_level(old_level);
 }
@@ -311,7 +421,14 @@ void thread_yield(void)
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority(int new_priority)
 {
+	enum intr_level old_level = intr_disable();
+
 	thread_current()->priority = new_priority;
+	list_sort(&ready_list, priority_large, NULL);
+
+	intr_set_level(old_level);
+
+	thread_yield();
 }
 
 /* Returns the current thread's priority. */
