@@ -116,7 +116,8 @@ void sema_up(struct semaphore *sema)
 															struct thread, elem));
 	}
 	sema->value++;
-	thread_yield();
+
+	thread_yield_r();
 
 	intr_set_level(old_level);
 }
