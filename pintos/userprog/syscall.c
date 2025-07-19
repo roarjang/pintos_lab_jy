@@ -41,7 +41,10 @@ void syscall_init(void)
 void syscall_handler(struct intr_frame *f UNUSED)
 {
 	// TODO: Your implementation goes here.
+<<<<<<< HEAD
 	// 각각의 syscall 번호를 보고 이것에 따라서 ~ 레지스터 값을 보고~...
+=======
+>>>>>>> db0503b (chore: format files)
 	printf("system call!\n");
 	thread_exit();
 }
