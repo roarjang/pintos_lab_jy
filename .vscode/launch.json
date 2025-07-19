@@ -2,6 +2,18 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Pintos Debug (Remote GDB)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/pintos/userprog/build/kernel.o",
+      "miDebuggerServerAddress": "localhost:1234",
+      "miDebuggerPath": "/usr/bin/gdb",
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}//pintos/userprog/build",
+      "externalConsole": false,
+      "MIMode": "gdb"
+    },
+    {
       "name": "Pintos Debug",
       "type": "cppdbg",
       "request": "launch",
