@@ -22,8 +22,10 @@
 #include "vm/vm.h"
 #endif
 
+#define MAX_ARGS 32
+
 static void process_cleanup(void);
-static bool load(const char *file_name, struct intr_frame *if_);
+static bool load(const char *file_name, struct intr_frame *if_, char **argv, int argc);
 static void initd(void *f_name);
 static void __do_fork(void *);
 
@@ -42,6 +44,7 @@ process_init(void)
 tid_t process_create_initd(const char *file_name)
 {
 	char *fn_copy;
+	char *unused_ptr;
 	tid_t tid;
 
 	/* Make a copy of FILE_NAME.
@@ -52,6 +55,8 @@ tid_t process_create_initd(const char *file_name)
 	strlcpy(fn_copy, file_name, PGSIZE);
 
 	/* Create a new thread to execute FILE_NAME. */
+	file_name = strtok_r(file_name, " ", &unused_ptr);
+	memset(unused_ptr + 1, 0, (strlen(unused_ptr + 1)));
 	tid = thread_create(file_name, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
 		palloc_free_page(fn_copy);
@@ -169,6 +174,21 @@ int process_exec(void *f_name)
 {
 	char *file_name = f_name;
 	bool success;
+	/* passing */
+	char *argv[MAX_ARGS];
+	int argc = 0;
+	char *token, *save_ptr;
+
+	for (token = strtok_r(file_name, " ", &save_ptr);
+			 token != NULL;
+			 token = strtok_r(NULL, " ", &save_ptr))
+	{
+		argv[argc++] = token;
+	}
+
+	// argv[0]은 실행할 파일명, arg[1...]은 인자들
+	// load(argv[0], &_if) 호출
+	// setup_stack에서 argv 배열을 스택에 올림
 
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
@@ -182,7 +202,7 @@ int process_exec(void *f_name)
 	process_cleanup();
 
 	/* And then load the binary */
-	success = load(file_name, &_if);
+	success = load(argv[0], &_if, argv, argc);
 
 	/* If load failed, quit. */
 	palloc_free_page(file_name);
@@ -208,6 +228,9 @@ int process_wait(tid_t child_tid UNUSED)
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+	thread_sleep(500);
+	// while (1)
+	// 	;
 	return -1;
 }
 
@@ -318,7 +341,7 @@ struct ELF64_PHDR
 #define ELF ELF64_hdr
 #define Phdr ELF64_PHDR
 
-static bool setup_stack(struct intr_frame *if_);
+static bool setup_stack(struct intr_frame *if_, char **argv, int argc);
 static bool validate_segment(const struct Phdr *, struct file *);
 static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
 												 uint32_t read_bytes, uint32_t zero_bytes,
@@ -329,7 +352,7 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
  * and its initial stack pointer into *RSP.
  * Returns true if successful, false otherwise. */
 static bool
-load(const char *file_name, struct intr_frame *if_)
+load(const char *file_name, struct intr_frame *if_, char **argv, int argc)
 {
 	struct thread *t = thread_current();
 	struct ELF ehdr;
@@ -337,6 +360,11 @@ load(const char *file_name, struct intr_frame *if_)
 	off_t file_ofs;
 	bool success = false;
 	int i;
+	char *unused_ptr;
+
+	// file_name = strtok_r(file_name, " ", &unused_ptr);
+	// memset(unused_ptr + 1, 0, (strlen(unused_ptr + 1)));
+	// file_name = strlcpy(file_name, file_name, strlen(file_name));
 
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create();
@@ -419,7 +447,7 @@ load(const char *file_name, struct intr_frame *if_)
 	}
 
 	/* Set up stack. */
-	if (!setup_stack(if_))
+	if (!setup_stack(if_, argv, argc))
 		goto done;
 
 	/* Start address. */
@@ -427,7 +455,6 @@ load(const char *file_name, struct intr_frame *if_)
 
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
-
 	success = true;
 
 done:
@@ -551,7 +578,7 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 
 /* Create a minimal stack by mapping a zeroed page at the USER_STACK */
 static bool
-setup_stack(struct intr_frame *if_)
+setup_stack(struct intr_frame *if_, char **argv, int argc)
 {
 	uint8_t *kpage;
 	bool success = false;
@@ -561,7 +588,48 @@ setup_stack(struct intr_frame *if_)
 	{
 		success = install_page(((uint8_t *)USER_STACK) - PGSIZE, kpage, true);
 		if (success)
-			if_->rsp = USER_STACK;
+		{
+			void *curr_rsp = USER_STACK;
+			int arg_size = 0; // arg 총 크기 (0 초기화 필수)
+			void *arg_address[MAX_ARGS];
+
+			for (int i = argc - 1; i >= 0; i--)
+			{
+				curr_rsp -= strlen(argv[i]) + 1;
+				arg_size += strlen(argv[i]) + 1;
+				arg_address[i] = curr_rsp;
+				memcpy(curr_rsp, argv[i], strlen(argv[i]) + 1);
+			}
+
+			// 8바이트 정렬 패딩
+			if (((8 - (arg_size % 8)) % 8) != 0)
+			{
+				char align_padding = (8 - (arg_size % 8)) % 8;
+
+				// arg_size += align_padding;
+				curr_rsp -= align_padding;
+				memset(curr_rsp, 0, sizeof(align_padding));
+			}
+
+			// 마지막 arg_address에 NULL 포인터 추가
+			curr_rsp -= 8;
+			memset(curr_rsp, 0x00, sizeof(void *));
+
+			// arg_address를 가리키는 포인터 추가
+			for (int i = argc - 1; i >= 0; i--)
+			{
+				curr_rsp -= 8;
+				memcpy(curr_rsp, &arg_address[i], sizeof(void *));
+			}
+
+			// fake return address
+			curr_rsp -= 8;
+			memset(curr_rsp, 0, sizeof(void *));
+
+			if_->rsp = curr_rsp;
+			if_->R.rdi = argc;
+			if_->R.rsi = curr_rsp + 8;
+		}
 		else
 			palloc_free_page(kpage);
 	}
