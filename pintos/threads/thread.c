@@ -418,6 +418,23 @@ void thread_yield(void)
 	intr_set_level(old_level);
 }
 
+/* safe yield for now...
+ * shout out to S.J.Kim */
+void thread_yield_r(void)
+{
+	enum intr_level old_level = intr_disable();
+
+	if (!list_empty(&ready_list) && thread_current()->priority < list_entry(list_front(&ready_list), struct thread, elem)->priority)
+	{
+		if (intr_context())
+			intr_yield_on_return();
+		else
+			thread_yield();
+	}
+
+	intr_set_level(old_level);
+}
+
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority(int new_priority)
 {

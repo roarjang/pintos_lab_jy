@@ -14,7 +14,10 @@
         "malloc.h": "c",
         "thread.h": "c",
         "limits.h": "c",
-        "stdbool.h": "c"
+        "stdbool.h": "c",
+        "tests.h": "c",
+        "*.inc": "c",
+        "lib.h": "c"
     },
     // ==================================
     // 포맷팅 설정
