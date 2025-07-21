@@ -121,6 +121,9 @@ void thread_init(void)
 	/* Set up a thread structure for the running thread. */
 	initial_thread = running_thread();
 	init_thread(initial_thread, "main", PRI_DEFAULT);
+
+	list_init(&initial_thread->fd_list);
+
 	initial_thread->status = THREAD_RUNNING;
 	initial_thread->tid = allocate_tid();
 }
@@ -563,6 +566,11 @@ next_thread_to_run(void)
 }
 
 /* Use iretq to launch the thread */
+/*
+tf (interrupt frame, 인터럽트 프레임)에 저장된 정보를 바탕으로 CPU의 레지스터들을 복원하고,
+최종적으로 iretq 명령어를 사용하여 CPU의 실행 흐름을 사용자 모드로 전환하고 사용자 프로그램의 특정 지점으로 점프
+(user stack의 주소로 돌려놓음)
+*/
 void do_iret(struct intr_frame *tf)
 {
 	__asm __volatile(
