@@ -123,7 +123,7 @@ void thread_init(void)
     initial_thread = running_thread();
     init_thread(initial_thread, "main", PRI_DEFAULT);
 
-    list_init(&initial_thread->fd_list);
+    // list_init(&initial_thread->fd_list);
 
     initial_thread->status = THREAD_RUNNING;
     initial_thread->tid = allocate_tid();
@@ -547,6 +547,9 @@ static void init_thread(struct thread *t, const char *name, int priority)
     t->tf.rsp = (uint64_t) t + PGSIZE - sizeof(void *);
     t->priority = priority;
     t->magic = THREAD_MAGIC;
+
+    list_init(&t->fd_list); /* fd_list */
+    t->next_fd = 2;         /* next_fd */
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

@@ -22,7 +22,7 @@ enum thread_status
 /* Thread identifier type.
          You can redefine this to whatever type you like. */
 typedef int tid_t;
-#define TID_ERROR ((tid_t) -1) /* Error value for tid_t. */
+#define TID_ERROR ((tid_t) - 1) /* Error value for tid_t. */
 
 /* Thread priorities. */
 #define PRI_MIN 0      /* Lowest priority. */
@@ -102,7 +102,7 @@ struct thread
     struct list_elem elem; /* List element. */
 
     struct list fd_list;
-
+    int next_fd; /* next_fd */
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint64_t *pml4; /* Page map level 4 */
