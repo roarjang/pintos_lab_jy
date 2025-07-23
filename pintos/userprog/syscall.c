@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 
-#include "include/filesys/file.h"
+#include "include/filesys/filesys.h"
 #include "intrinsic.h"
 #include "lib/kernel/console.h"
 #include "threads/flags.h"
