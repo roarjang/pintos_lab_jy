@@ -163,45 +163,40 @@ static int write_handler(int fd, const void *buffer, unsigned size)
 
 static int close_handler(int fd)
 {
-    // 현재 스레드의 파일 디스크립터 리스트를 가져온 후
-    // 해당 파일 file_close
-    // 리스트에서 file_fd 제거, 메모리 해제
+    struct thread *current_thread = thread_current();
 
-    struct thread *t = thread_current();
-    struct list_elem *e;
-
-    for (e = list_begin(&t->fd_list); e != list_end(&t->fd_list);
-         e = list_next(e))
+    if (fd < 2 || fd > 127)
     {
-        struct file_fd *fdf = list_entry(e, struct file_fd, elem);
-        if (fdf->fd == fd)
-        {
-            file_close(fdf->file);
-            list_remove(e);
-            free(fdf);  // palloc_free_page(fdf); ?
-            return 0;
-        }
+        return -1;
     }
 
-    return -1;
+    if (current_thread->file_descriptor_table[fd] == NULL)
+        {
+        return -1;
+    }
+    else
+    {
+        current_thread->file_descriptor_table[fd] = NULL;
+        free(current_thread->file_descriptor_table[fd]);
+            return 0;
+        }
 }
 
 // 헌재 실행 중인 프로세스의 열린 파일 리스트에서 특정 파일 디스크립터(fd)에
 // 해당하는 파일 포인터를 찾아 반환
 struct file *process_get_file(int fd)
 {
-    struct thread *curr = thread_current();
-    struct list_elem *e;
+    struct thread *current_thread = thread_current();
 
-    for (e = list_begin(&curr->fd_list); e != list_end(&curr->fd_list);
-         e = list_next(e))
+    if (current_thread->file_descriptor_table[fd]->fd_type == FD_TYPE_FILE &&
+        current_thread->file_descriptor_table[fd]->fd_ptr != NULL)
     {
-        // 각 리스트 요소를 struct file_fd *f로 변환
-        struct file_fd *fdf = list_entry(e, struct file_fd, elem);
-        if (fdf->fd == fd) return fdf->file;
+        return current_thread->file_descriptor_table[fd]->fd_ptr;
     }
-
-    return NULL;  // 해당 fd를 가진 파일이 없으면 NULL
+    else
+    {
+        return NULL;
+    }
 }
 
 // 현재 실행 중인 프로세스의 열린 파일 리스트에 파일 추가
