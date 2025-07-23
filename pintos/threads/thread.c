@@ -11,6 +11,7 @@
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
+#include "threads/malloc.h"
 #include "threads/palloc.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
@@ -123,8 +124,6 @@ void thread_init(void)
     initial_thread = running_thread();
     init_thread(initial_thread, "main", PRI_DEFAULT);
 
-    // list_init(&initial_thread->fd_list);
-
     initial_thread->status = THREAD_RUNNING;
     initial_thread->tid = allocate_tid();
 }
@@ -136,6 +135,17 @@ void thread_start(void)
     /* Create the idle thread. */
     struct semaphore idle_started;
     sema_init(&idle_started, 0);
+
+    struct thread *initial_thread = thread_current();
+
+    initial_thread->file_descriptor_table[0] = malloc(sizeof(struct uni_file));
+    initial_thread->file_descriptor_table[1] = malloc(sizeof(struct uni_file));
+
+    initial_thread->file_descriptor_table[0]->fd_type = FD_TYPE_STDIN;
+    initial_thread->file_descriptor_table[0]->fd_ptr = NULL;
+
+    initial_thread->file_descriptor_table[1]->fd_type = FD_TYPE_STDOUT;
+    initial_thread->file_descriptor_table[1]->fd_ptr = NULL;
     thread_create("idle", PRI_MIN, idle, &idle_started);
 
     /* Start preemptive thread scheduling. */
@@ -212,6 +222,15 @@ tid_t thread_create(const char *name, int priority, thread_func *function,
     t->tf.ss = SEL_KDSEG;
     t->tf.cs = SEL_KCSEG;
     t->tf.eflags = FLAG_IF;
+
+    t->file_descriptor_table[0] = malloc(sizeof(struct uni_file));
+    t->file_descriptor_table[1] = malloc(sizeof(struct uni_file));
+
+    t->file_descriptor_table[0]->fd_type = FD_TYPE_STDIN;
+    t->file_descriptor_table[0]->fd_ptr = NULL;
+
+    t->file_descriptor_table[1]->fd_type = FD_TYPE_STDOUT;
+    t->file_descriptor_table[1]->fd_ptr = NULL;
 
     /* Add to run queue. */
     thread_unblock(t);
@@ -547,9 +566,7 @@ static void init_thread(struct thread *t, const char *name, int priority)
     t->tf.rsp = (uint64_t) t + PGSIZE - sizeof(void *);
     t->priority = priority;
     t->magic = THREAD_MAGIC;
-
-    list_init(&t->fd_list); /* fd_list */
-    t->next_fd = 2;         /* next_fd */
+    t->next_fd = 2;
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

@@ -101,7 +101,7 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem; /* List element. */
 
-    struct list fd_list;
+    struct uni_file *file_descriptor_table[128];
     int next_fd; /* next_fd */
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -115,6 +115,20 @@ struct thread
     /* Owned by thread.c. */
     struct intr_frame tf; /* Information for switching */
     unsigned magic;       /* Detects stack overflow. */
+};
+
+enum fd_type
+{
+    FD_TYPE_STDIN,
+    FD_TYPE_STDOUT,
+    FD_TYPE_FILE,
+    FD_TYPE_DIR,
+};
+
+struct uni_file
+{
+    enum fd_type fd_type;
+    void *fd_ptr;
 };
 
 /* If false (default), use round-robin scheduler.

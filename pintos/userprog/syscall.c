@@ -14,6 +14,7 @@
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
+static bool check_bad_addr();
 static int write_handler(int fd, const void *buffer, unsigned size);
 static int close_handler(int fd);
 struct file *process_get_file(int fd);
@@ -71,17 +72,26 @@ void syscall_handler(struct intr_frame *f UNUSED)
         case SYS_EXIT:
         {
             struct thread *curr = thread_current();
-            printf("%s: exit(%d)\n", curr->name, f->R.rdi);
+            curr->tf.R.rax = f->R.rdi;
             thread_exit();
-            break;
         }
         case SYS_CREATE:
         {
-            // printf("system call create called!\n");
             const char *open_filename = (const char *) f->R.rdi;
             int32_t filesize = f->R.rsi;
+            struct thread *curr = thread_current();
+
+            if (open_filename == NULL ||
+                check_bad_addr(open_filename, curr) == NULL)
+            {
+                curr->tf.R.rax = -1;
+                thread_exit();
+            }
+            else
+            {
             f->R.rax = filesys_create(open_filename, filesize);
             break;
+            }
         }
         case SYS_OPEN:
         {
@@ -118,6 +128,11 @@ void syscall_handler(struct intr_frame *f UNUSED)
             break;
         }
     }
+}
+
+static bool check_bad_addr(const char *vaddr, struct thread *t)
+{
+    return pml4_get_page(t->pml4, vaddr);
 }
 
 /* 파일 또는 STDOUT으로 쓰기 */
