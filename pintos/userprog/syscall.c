@@ -89,25 +89,36 @@ void syscall_handler(struct intr_frame *f UNUSED)
             }
             else
             {
-            f->R.rax = filesys_create(open_filename, filesize);
-            break;
+                f->R.rax = filesys_create(open_filename, filesize);
+                break;
             }
         }
         case SYS_OPEN:
         {
+            struct thread *curr = thread_current();
             if (is_user_vaddr(f->R.rdi))
             {
-                const char *open_file_name = (const char *) f->R.rdi;
-                struct file *open_file = filesys_open(open_file_name);
-                if (open_file != NULL)
+                const char *open_filename = (const char *) f->R.rdi;
+                if (open_filename == NULL ||
+                    check_bad_addr(open_filename, curr) == NULL)
                 {
-                    f->R.rax = process_add_file(open_file);
+                    curr->tf.R.rax = -1;
+                    thread_exit();
                 }
                 else
                 {
-                    f->R.rax = -1;
+                    struct file *open_file = filesys_open(open_filename);
+
+                    if (open_file != NULL)
+                    {
+                        f->R.rax = process_add_file(open_file);
+                    }
+                    else
+                    {
+                        f->R.rax = -1;
+                    }
+                    break;
                 }
-                break;
             }
         }
         case SYS_WRITE:
@@ -171,15 +182,15 @@ static int close_handler(int fd)
     }
 
     if (current_thread->file_descriptor_table[fd] == NULL)
-        {
+    {
         return -1;
     }
     else
     {
         current_thread->file_descriptor_table[fd] = NULL;
         free(current_thread->file_descriptor_table[fd]);
-            return 0;
-        }
+        return 0;
+    }
 }
 
 // 헌재 실행 중인 프로세스의 열린 파일 리스트에서 특정 파일 디스크립터(fd)에
@@ -202,15 +213,20 @@ struct file *process_get_file(int fd)
 // 현재 실행 중인 프로세스의 열린 파일 리스트에 파일 추가
 int process_add_file(struct file *file)
 {
-    if (file == NULL) return -1;
-    struct thread *curr_thread = thread_current();
-    // 새로운 file_fd 구조체를 동적 할당
-    struct file_fd *f = malloc(sizeof(struct file_fd));
-    if (f == NULL) return -1;
-    // file_fd의 값 설정
-    f->file = file;
-    f->fd = curr_thread->next_fd++;
-    // 리스트에 추가
-    list_push_front(&curr_thread->fd_list, &f->elem);
-    return f->fd;
+    if (file == NULL)
+    {
+        return -1;
+    }
+
+    struct thread *current_thread = thread_current();
+
+    current_thread->file_descriptor_table[current_thread->next_fd] =
+        malloc(sizeof(struct uni_file));
+
+    current_thread->file_descriptor_table[current_thread->next_fd]->fd_type =
+        FD_TYPE_FILE;
+    current_thread->file_descriptor_table[current_thread->next_fd]->fd_ptr =
+        file;
+
+    return current_thread->next_fd++;
 }
