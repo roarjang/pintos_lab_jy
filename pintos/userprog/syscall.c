@@ -62,15 +62,57 @@ void syscall_handler(struct intr_frame *f UNUSED)
         case SYS_HALT:
         {
             power_off();
+            break;
         }
         case SYS_EXIT:
         {
             struct thread *curr = thread_current();
             printf("%s: exit(%d)\n", curr->name, f->R.rdi);
             thread_exit();
+            break;
+        }
+        case SYS_FORK:
+        {
+            printf("system call fork called!\n");
+            break;
+        }
+        case SYS_EXEC:
+        {
+            printf("system call exec called!\n");
+            break;
+        }
+        case SYS_WAIT:
+        {
+            printf("system call wait called!\n");
+            break;
         }
         case SYS_CREATE:
         {
+            // printf("system call create called!\n");
+            const char *open_filename = (const char *) f->R.rdi;
+            int32_t filesize = f->R.rsi;
+            f->R.rax = filesys_create(open_filename, filesize);
+            break;
+        }
+        case SYS_REMOVE:
+        {
+            printf("system call remove called!\n");
+            break;
+        }
+        case SYS_OPEN:
+        {
+            printf("system call open called!\n");
+            break;
+        }
+        case SYS_FILESIZE:
+        {
+            printf("system call filesize called!\n");
+            break;
+        }
+        case SYS_READ:
+        {
+            printf("system call read called!\n");
+            break;
         }
         case SYS_WRITE:
         {
@@ -82,21 +124,41 @@ void syscall_handler(struct intr_frame *f UNUSED)
             f->R.rax = write_handler(f->R.rdi, f->R.rsi, f->R.rdx);
             break;
         }
+        case SYS_SEEK:
+        {
+            printf("system call seek called!\n");
+            break;
+        }
+        case SYS_TELL:
+        {
+            printf("system call tell called!\n");
+            break;
+        }
+        case SYS_CLOSE:
+        {
+            printf("system call close called!\n");
+            break;
+        }
     }
 }
 
 /* 파일 또는 STDOUT으로 쓰기 */
 static int write_handler(int fd, const void *buffer, unsigned size)
 {
-    // buffer를 fd에 쓰기
+    /* buffer를 fd에 쓰기 */
     if (is_user_vaddr(buffer) || is_user_vaddr(buffer + size))
     {
-        if (fd == 1)  // fd가 1이면 표준 출력 (파일이 아니라 콘솔로 출력)
+        if (fd == 1)
         {
+            /* CASE: stdin */
             putbuf(buffer, size);
         }
-        else if (fd > 2)  // open()으로 연 파일이 할당된 경우
+        else if (fd > 2)
         {
+            /* CASE: not std-in,out, err */
+            /* 표준 입력(stdin:0), 표준 출력(stdout:1), 표준 에러(stderr:2)가
+             * 아니면 파일을 연 것이므로, 이후 파일 디스크립터 번호를 할당한다.
+             */
             struct file *f = process_get_file(fd);
             if (f == NULL) return -1;
             return file_write(f, buffer, size);
