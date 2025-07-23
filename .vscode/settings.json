@@ -17,6 +17,7 @@
         "stdbool.h": "c",
         "tests.h": "c",
         "*.inc": "c",
-        "lib.h": "c"
+        "lib.h": "c",
+        "inode.h": "c"
     },
 }
