@@ -3,5 +3,6 @@
 
 void syscall_init(void);
 struct file *process_get_file(int fd);
+int process_add_file(struct file *file);
 
 #endif /* userprog/syscall.h */
