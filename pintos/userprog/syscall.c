@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 
-#include "filesys/filesys.h"
+#include "include/filesys/file.h"
 #include "intrinsic.h"
 #include "lib/kernel/console.h"
 #include "threads/flags.h"
@@ -14,6 +14,9 @@
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
+static int write_handler(int fd, const void *buffer, unsigned size);
+static int close_handler(int fd);
+struct file *process_get_file(int fd);
 
 struct file_fd
 {
@@ -72,21 +75,6 @@ void syscall_handler(struct intr_frame *f UNUSED)
             thread_exit();
             break;
         }
-        case SYS_FORK:
-        {
-            printf("system call fork called!\n");
-            break;
-        }
-        case SYS_EXEC:
-        {
-            printf("system call exec called!\n");
-            break;
-        }
-        case SYS_WAIT:
-        {
-            printf("system call wait called!\n");
-            break;
-        }
         case SYS_CREATE:
         {
             // printf("system call create called!\n");
@@ -95,14 +83,8 @@ void syscall_handler(struct intr_frame *f UNUSED)
             f->R.rax = filesys_create(open_filename, filesize);
             break;
         }
-        case SYS_REMOVE:
-        {
-            printf("system call remove called!\n");
-            break;
-        }
         case SYS_OPEN:
         {
-            printf("system call open called!\n");
             if (is_user_vaddr(f->R.rdi))
             {
                 const char *open_file_name = (const char *) f->R.rdi;
@@ -118,16 +100,6 @@ void syscall_handler(struct intr_frame *f UNUSED)
                 break;
             }
         }
-        case SYS_FILESIZE:
-        {
-            printf("system call filesize called!\n");
-            break;
-        }
-        case SYS_READ:
-        {
-            printf("system call read called!\n");
-            break;
-        }
         case SYS_WRITE:
         {
             // 인터럽트 프레임(struct intr_frame *f)을 통해 사용자 프로그램의
@@ -138,19 +110,11 @@ void syscall_handler(struct intr_frame *f UNUSED)
             f->R.rax = write_handler(f->R.rdi, f->R.rsi, f->R.rdx);
             break;
         }
-        case SYS_SEEK:
-        {
-            printf("system call seek called!\n");
-            break;
-        }
-        case SYS_TELL:
-        {
-            printf("system call tell called!\n");
-            break;
-        }
         case SYS_CLOSE:
         {
-            printf("system call close called!\n");
+            // fd_list에서 fd를 가진 file_fd 찾아서
+            // 리스트에서 제거하고 file_fd 메모리 해제
+            close_handler(f->R.rdi);
             break;
         }
     }
@@ -159,23 +123,48 @@ void syscall_handler(struct intr_frame *f UNUSED)
 /* 파일 또는 STDOUT으로 쓰기 */
 static int write_handler(int fd, const void *buffer, unsigned size)
 {
-    /* buffer를 fd에 쓰기 */
-    if (is_user_vaddr(buffer) || is_user_vaddr(buffer + size))
+    // if (!is_user_vaddr(buffer) ||
+    //     (size > 0 && !is_user_vaddr(buffer + size - 1)))
+    // {
+    //     thread_exit();
+
+    // buffer를 fd에 쓰기
+    if (is_user_vaddr(buffer) && is_user_vaddr(buffer + size))
     {
-        if (fd == 1)
+        if (fd == 1)  // fd가 1이면 표준 출력 (파일이 아니라 콘솔로 출력)
         {
-            /* CASE: stdin */
             putbuf(buffer, size);
         }
-        else if (fd > 2)
+        else if (fd > 2)  // open()으로 연 파일이 할당된 경우
         {
-            /* CASE: not std-in,out, err */
-            /* 표준 입력(stdin:0), 표준 출력(stdout:1), 표준 에러(stderr:2)가
-             * 아니면 파일을 연 것이므로, 이후 파일 디스크립터 번호를 할당한다.
-             */
-            struct file *f = process_get_file(fd);
-            if (f == NULL) return -1;
-            return file_write(f, buffer, size);
+            struct file *file = process_get_file(fd);
+            if (file == NULL) return -1;
+            return file_write(file, buffer, size);
+        }
+    }
+
+    return -1;
+}
+
+static int close_handler(int fd)
+{
+    // 현재 스레드의 파일 디스크립터 리스트를 가져온 후
+    // 해당 파일 file_close
+    // 리스트에서 file_fd 제거, 메모리 해제
+
+    struct thread *t = thread_current();
+    struct list_elem *e;
+
+    for (e = list_begin(&t->fd_list); e != list_end(&t->fd_list);
+         e = list_next(e))
+    {
+        struct file_fd *fdf = list_entry(e, struct file_fd, elem);
+        if (fdf->fd == fd)
+        {
+            file_close(fdf->file);
+            list_remove(e);
+            free(fdf);  // palloc_free_page(fdf); ?
+            return 0;
         }
     }
 
@@ -186,37 +175,16 @@ static int write_handler(int fd, const void *buffer, unsigned size)
 // 해당하는 파일 포인터를 찾아 반환
 struct file *process_get_file(int fd)
 {
-    struct thread *t = thread_current();
+    struct thread *curr = thread_current();
     struct list_elem *e;
 
-    for (e = list_begin(&t->fd_list); e != list_end(&t->fd_list);
+    for (e = list_begin(&curr->fd_list); e != list_end(&curr->fd_list);
          e = list_next(e))
     {
         // 각 리스트 요소를 struct file_fd *f로 변환
-        struct file_fd *f = list_entry(e, struct file_fd, elem);
-        if (f->fd == fd) return f->file;
+        struct file_fd *fdf = list_entry(e, struct file_fd, elem);
+        if (fdf->fd == fd) return fdf->file;
     }
 
     return NULL;  // 해당 fd를 가진 파일이 없으면 NULL
-}
-
-// 현재 실행 중인 프로세스의 열린 파일 리스트에 파일 추가
-int process_add_file(struct file *file)
-{
-    if (file == NULL) return -1;
-
-    struct thread *curr_thread = thread_current();
-
-    // 새로운 file_fd 구조체를 동적 할당
-    struct file_fd *f = malloc(sizeof(struct file_fd));
-    if (f == NULL) return -1;
-
-    // file_fd의 값 설정
-    f->file = file;
-    f->fd = curr_thread->next_fd++;
-
-    // 리스트에 추가
-    list_push_front(&curr_thread->fd_list, &f->elem);
-
-    return f->fd;
 }
