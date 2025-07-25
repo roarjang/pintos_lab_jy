@@ -121,6 +121,35 @@ void syscall_handler(struct intr_frame *f UNUSED)
                 }
             }
         }
+        case SYS_FILESIZE:
+        {
+            struct file *current_file = process_get_file(f->R.rdi);
+            f->R.rax = file_length(current_file);
+            break;
+        }
+        case SYS_READ:
+        {
+            struct thread *current_thread = thread_current();
+            char *buffer = f->R.rsi;
+            size_t size = f->R.rdx;
+
+            if (!is_fd_readable(f->R.rdi) ||
+                check_bad_addr(f->R.rsi, current_thread) == NULL)
+            {
+                current_thread->tf.R.rax = -1;
+                thread_exit();
+            }
+            // else if (f->R.rdi == 1)
+            // {
+            //     putbuf(buffer, size);
+            //     f->R.rax = buffer;
+            //     break;
+            // }
+
+            struct file *current_file = process_get_file(f->R.rdi);
+            f->R.rax = file_read(current_file, buffer, size);
+            break;
+        }
         case SYS_WRITE:
         {
             // 인터럽트 프레임(struct intr_frame *f)을 통해 사용자 프로그램의
@@ -149,27 +178,33 @@ static bool check_bad_addr(const char *vaddr, struct thread *t)
 /* 파일 또는 STDOUT으로 쓰기 */
 static int write_handler(int fd, const void *buffer, unsigned size)
 {
-    // if (!is_user_vaddr(buffer) ||
-    //     (size > 0 && !is_user_vaddr(buffer + size - 1)))
-    // {
-    //     thread_exit();
+    struct thread *current_thread = thread_current();
 
-    // buffer를 fd에 쓰기
-    if (is_user_vaddr(buffer) && is_user_vaddr(buffer + size))
+    if (!is_fd_writable(fd) || check_bad_addr(buffer, current_thread) == NULL)
     {
-        if (fd == 1)  // fd가 1이면 표준 출력 (파일이 아니라 콘솔로 출력)
+        current_thread->tf.R.rax = -1;
+        thread_exit();
+    }
+
+    if (!(is_user_vaddr(buffer) && is_user_vaddr(buffer + size)))
+    {
+        return -1;
+    }
+
+    switch (fd)
+    {
+        case 1:
         {
-            putbuf(buffer, size);
+            putbuf(buffer,
+                   size); /* fd가 1이면 표준 출력 (파일이 아니라 콘솔로 출력) */
         }
-        else if (fd > 2)  // open()으로 연 파일이 할당된 경우
+        default: /* open()으로 연 파일이 할당된 경우 */
         {
             struct file *file = process_get_file(fd);
             if (file == NULL) return -1;
             return file_write(file, buffer, size);
         }
     }
-
-    return -1;
 }
 
 static int close_handler(int fd)
