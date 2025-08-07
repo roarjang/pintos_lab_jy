@@ -223,7 +223,8 @@ tid_t thread_create(const char *name, int priority,
 
 	if (!list_empty(&ready_list))
 	{
-		if (thread_current()->priority < list_entry(list_front(&ready_list), struct thread, elem))
+		struct thread *next = list_entry(list_front(&ready_list), struct thread, elem);
+		if (thread_current()->priority < next->priority)
 		{
 			thread_yield();
 		}
@@ -424,7 +425,7 @@ void thread_yield_r(void)
 {
 	enum intr_level old_level = intr_disable();
 
-	if (!list_empty(&ready_list) && thread_current()->priority < list_entry(list_front(&ready_list), struct thread, elem)->priority)
+	if (!list_empty(&ready_list) && thread_get_priority() < list_entry(list_front(&ready_list), struct thread, elem)->priority)
 	{
 		if (intr_context())
 			intr_yield_on_return();
@@ -516,7 +517,10 @@ idle(void *idle_started_ UNUSED)
 
 			 See [IA32-v2a] "HLT", [IA32-v2b] "STI", and [IA32-v3a]
 			 7.11.1 "HLT Instruction". */
-		asm volatile("sti; hlt" : : : "memory");
+		asm volatile("sti; hlt"
+								 :
+								 :
+								 : "memory");
 	}
 }
 
@@ -545,6 +549,8 @@ init_thread(struct thread *t, const char *name, int priority)
 	strlcpy(t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t)t + PGSIZE - sizeof(void *);
 	t->priority = priority;
+	t->origin_priority = priority;
+	list_init(&t->donor_list);
 	t->magic = THREAD_MAGIC;
 }
 
@@ -587,7 +593,9 @@ void do_iret(struct intr_frame *tf)
 			"movw (%%rsp),%%es\n"
 			"addq $32, %%rsp\n"
 			"iretq"
-			: : "g"((uint64_t)tf) : "memory");
+			:
+			: "g"((uint64_t)tf)
+			: "memory");
 }
 
 /* Switching the thread by activating the new thread's page
@@ -656,7 +664,9 @@ thread_launch(struct thread *th)
 			"mov %%rcx, %%rdi\n"
 			"call do_iret\n"
 			"out_iret:\n"
-			: : "g"(tf_cur), "g"(tf) : "memory");
+			:
+			: "g"(tf_cur), "g"(tf)
+			: "memory");
 }
 
 /* Schedules a new process. At entry, interrupts must be off.
